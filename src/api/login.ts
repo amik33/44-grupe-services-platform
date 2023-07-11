@@ -1,10 +1,12 @@
 import { file } from "../lib/file.js";
-import { APIresponse } from "../lib/server.js";
+import { APIresponse, DataForHandlers } from "../lib/server.js";
 
-export async function loginAPI(httpMethod: string, restUrlParts: string[], jsonData: any): Promise<APIresponse> {
+export async function loginAPI(data: DataForHandlers): Promise<APIresponse> {
     const availableHttpMethods = ['post'];
+    const {httpMethod} = data;
+
     if (availableHttpMethods.includes(httpMethod) && httpMethod in api) {
-        return await api[httpMethod]!(restUrlParts, jsonData);
+        return await api[httpMethod]!(data);
     }
 
     return {
@@ -13,11 +15,12 @@ export async function loginAPI(httpMethod: string, restUrlParts: string[], jsonD
         body: `"${httpMethod}" HTTP method is not allowed.`,
     };
 }
-
+``
 const api: Record<string, Function> = {};
 
-api.post = async (restUrlParts: string[], jsonData: any): Promise<APIresponse> => {
-    if (typeof jsonData.email !== 'string' || jsonData.email === '') {
+api.post = async (data: DataForHandlers): Promise<APIresponse> => {
+    const {payload} = data;
+    if (typeof payload.email !== 'string' || payload.email === '') {
         return {
             statusCode: 422,
             headers: {},
@@ -25,7 +28,7 @@ api.post = async (restUrlParts: string[], jsonData: any): Promise<APIresponse> =
         };
     }
 
-    if (typeof jsonData.pass !== 'string' || jsonData.pass === '') {
+    if (typeof payload.pass !== 'string' || payload.pass === '') {
         return {
             statusCode: 422,
             headers: {},
@@ -33,7 +36,7 @@ api.post = async (restUrlParts: string[], jsonData: any): Promise<APIresponse> =
         };
     }
 
-    const keys = Object.keys(jsonData);
+    const keys = Object.keys(payload);
     if (keys.length > 2) {
         return {
             statusCode: 422,
@@ -42,7 +45,7 @@ api.post = async (restUrlParts: string[], jsonData: any): Promise<APIresponse> =
         };
     }
 
-    const [userErr, userMsg] = await file.read('users', jsonData.email + '.json');
+    const [userErr, userMsg] = await file.read('users', payload.email + '.json');
     if (userErr) {
         return {
             statusCode: 422,
@@ -52,7 +55,7 @@ api.post = async (restUrlParts: string[], jsonData: any): Promise<APIresponse> =
     }
 
     const userObj = JSON.parse(userMsg);
-    if (userObj.pass !== jsonData.pass) {
+    if (userObj.pass !== payload.pass) {
         return {
             statusCode: 422,
             headers: {},
@@ -68,7 +71,7 @@ api.post = async (restUrlParts: string[], jsonData: any): Promise<APIresponse> =
     }
 
     const tokenObj = {
-        email: jsonData.email,
+        email: payload.email,
         createdAt: new Date().getTime(),
     };
     const [tokenErr, tokenMsg] = await file.create('token', token + '.json', tokenObj);

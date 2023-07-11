@@ -1,5 +1,7 @@
 import http, { IncomingMessage, ServerResponse } from 'node:http';
 import { StringDecoder } from 'node:string_decoder';
+import { cookieParser, isUserLoggedIn } from './utils.js';
+import { Connection } from 'mysql2/promise';
 import { file } from './file.js';
 
 // PAGES
@@ -13,12 +15,29 @@ import { PageAccount } from '../pages/PageAccount.js';
 // API
 import { registerAPI } from '../api/register.js';
 import { loginAPI } from '../api/login.js';
-import { cookieParser, isUserLoggedIn } from './utils.js';
+import { servicesAPI } from '../api/services.js';
+
+
+let dbConnection = {} as Connection;
 
 export type APIresponse = {
     statusCode: number,
     headers: Record<string, any>,
     body: string | undefined,
+}
+
+export type DataForHandlers = {
+    dbConnection: Connection;
+    httpMethod: string;
+    trimmedPath:string;
+    parsedUrl: URL;
+    payload: any;
+    user: {
+        email: string;
+        isLoggedIn: boolean;
+
+    };
+
 }
 
 const serverLogic = async (req: IncomingMessage, res: ServerResponse) => {
@@ -65,6 +84,7 @@ const serverLogic = async (req: IncomingMessage, res: ServerResponse) => {
     let buffer = '';
     const stringDecoder = new StringDecoder('utf-8');
 
+
     // Upload? API POST request?
     req.on('data', (data) => {
         buffer += stringDecoder.write(data);
@@ -73,6 +93,26 @@ const serverLogic = async (req: IncomingMessage, res: ServerResponse) => {
     // Galutinis sprendimas ir atsakymas klientui
     req.on('end', async () => {
         buffer += stringDecoder.end();
+
+        let jsonData = {};
+        try {
+            jsonData = JSON.parse(buffer);
+        } catch (error) { }
+
+
+        const dataForHandlers: DataForHandlers = {
+            dbConnection,
+            httpMethod,
+            trimmedPath,
+            parsedUrl,
+            payload: jsonData,
+            user: {
+                email: '',
+                isLoggedIn: false,
+        
+            },
+        
+        };   
 
         if (isTextFile) {
             const [err, msg] = await file.readPublic(trimmedPath);
@@ -107,15 +147,11 @@ const serverLogic = async (req: IncomingMessage, res: ServerResponse) => {
                 'Content-Type': MIMES.json,
             };
             let apiRes = {} as APIresponse;
-            let jsonData = {};
-            try {
-                jsonData = JSON.parse(buffer);
-            } catch (error) { }
-
+            
             const [_, endpoint, ...restUrlParts] = trimmedPath.split('/') as [string, string, string[]];
             const apiFunction = apiEndpoints[endpoint];
             if (apiFunction) {
-                apiRes = await apiFunction(httpMethod, restUrlParts, jsonData) as APIresponse;
+                apiRes = await apiFunction(dataForHandlers) as APIresponse;
             } else {
                 apiRes = {
                     statusCode: 200,
@@ -168,13 +204,15 @@ export const protectedPages: Record<string, any> = {
 };
 
 export const apiEndpoints: Record<string, any> = {
-    'register': registerAPI,
-    'login': loginAPI,
+    register: registerAPI,
+    login: loginAPI,
+    services:  servicesAPI,
 };
 
 const httpServer = http.createServer(serverLogic);
 
-export const init = () => {
+export const init = (dbConnectionObj: Connection) => {
+    dbConnection = dbConnectionObj;
     httpServer.listen(4415, () => {
         console.log(`Server running at http://localhost:4415`);
     })
